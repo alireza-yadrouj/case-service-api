@@ -1,26 +1,8 @@
-from fastapi import FastAPI, HTTPException, APIRouter
-from pydantic import BaseModel
+from fastapi import HTTPException, APIRouter
 from database import get_connection
-
-project = FastAPI()
-
-cases = []
+from Schemas import Case, CaseResponse, CaseListResponse, TotalCountResponse
 
 router = APIRouter()
-
-case_id_counter = 1
-
-class Case(BaseModel):
-    title: str
-    description: str
-    priority: int
-
-
-class CaseResponse(BaseModel):
-    id : int
-    title: str
-    description: str
-    priority: int
 
 
 @router.post("/cases", response_model=CaseResponse)
@@ -44,18 +26,42 @@ def create_case(case: Case):
         "priority": case.priority
     }
 
-@router.get("/cases", response_model=list[CaseResponse])
-def get_cases(priority: int | None = None):
+@router.get("/cases/count", response_model=TotalCountResponse)
+def get_cases_count():
     conn = get_connection()
     cursor = conn.cursor()
-    if priority is None:
-        rows = cursor.execute( "SELECT * FROM cases" ).fetchall()
-    else:
-        rows = cursor.execute( "SELECT * FROM cases WHERE priority = ?", (priority,) ).fetchall()
+
+    count = cursor.execute(
+        "SELECT COUNT(*) FROM cases"
+    ).fetchone()[0]
 
     conn.close()
 
-    return [dict(row) for row in rows]
+    return {"total": count}
+
+
+@router.get("/cases", response_model=list[CaseResponse])
+def get_cases( priority: int | None = None, limit: int = 10, offset: int = 0):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    if priority is None:
+        rows = cursor.execute( "SELECT * FROM cases LIMIT ? OFFSET ?", (limit, offset)).fetchall()
+    else:
+        rows = cursor.execute(
+            """
+            SELECT * FROM cases
+            WHERE priority = ?
+            LIMIT ? OFFSET ?
+            """,
+            (priority, limit, offset)
+        ).fetchall()
+
+    conn.close()
+    cases = [dict(row) for row in rows]
+   
+    return  cases
+
 
 @router.put("/cases/{case_id}", response_model=CaseResponse)
 def update_case(case_id: int, updated_case: Case):
@@ -121,11 +127,8 @@ def get_case(case_id: int):
     conn.close()
 
     if row is None:
-     raise HTTPException(status_code=404, detail="Case not found")
+        raise HTTPException(status_code=404, detail="Case not found")
 
     return dict(row)
 
 
-@project.get("/")
-def say_hello():
-    return {"message": "Hello app!!!!"}
